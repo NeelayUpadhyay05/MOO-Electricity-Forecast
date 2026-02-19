@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+data/  # >10MB
+models/*.pth
+.wandb/
+
+.vscode/settings.json
+.vscode/launch.json
+.vscode/tasks.json
+
+models/
+!.gitignore
+
+environment.lock
