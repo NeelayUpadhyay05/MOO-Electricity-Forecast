@@ -1,0 +1,62 @@
+# =========================
+# Python
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# Conda environments
+conda-meta/
+
+# =========================
+# Jupyter
+# =========================
+.ipynb_checkpoints/
+
+# =========================
+# IDE
+# =========================
+.vscode/
+.idea/
+
+# =========================
+# OS Files
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# Logs
+# =========================
+*.log
+
+# =========================
+# Data (never push raw datasets)
+# =========================
+data/raw/
+data/processed/
+
+# =========================
+# Results / Models
+# =========================
+results/
+*.pt
+*.pth
+*.ckpt
+
+# =========================
+# TensorBoard
+# =========================
+runs/
+
+# =========================
+# Build files (if any)
+# =========================
+build/
+dist/
+*.egg-info/
