@@ -3,7 +3,7 @@ from src.utils.seed import set_seed
 
 def main():
     set_seed(42)
-    print("Reproducibility initialized.")
+    print("Project initialized.")
 
 
 if __name__ == "__main__":
