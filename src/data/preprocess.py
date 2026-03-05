@@ -87,19 +87,25 @@ def chronological_split(df: pd.DataFrame):
 def select_households(train_df, val_df, test_df,
                       n_households: int = 100, seed: int = 42):
     """
-    Filter out zero-variance households (using training set statistics),
+    Filter out constant or near-constant households (using training set statistics),
     then randomly select exactly n_households from the valid pool.
 
+    Uses max-min range rather than variance because np.nanvar on large constant
+    float64 arrays can return a tiny positive value due to floating-point
+    summation accumulation, causing constant households to pass the var > 0 check.
+
     Splitting before selecting guarantees that the final dataset
-    contains exactly n_households with non-zero variance in training.
+    contains exactly n_households with meaningful variation in training.
     """
-    # Identify households with non-zero variance in training data
-    variances = train_df.var(ddof=0)
-    valid_cols = variances[variances > 0].index.tolist()
+    # Identify households with meaningful range in training data.
+    # Threshold 1e-6 safely excludes constant bfill-padded series while
+    # keeping any household with real variation (typical range >> 1).
+    ranges = train_df.max() - train_df.min()
+    valid_cols = ranges[ranges > 1e-6].index.tolist()
     n_removed = len(train_df.columns) - len(valid_cols)
 
     if n_removed > 0:
-        print(f"  Households removed (zero variance in train): {n_removed}")
+        print(f"  Households removed (constant or near-constant in train): {n_removed}")
 
     if len(valid_cols) < n_households:
         raise ValueError(
@@ -134,6 +140,13 @@ def normalize_per_household(train_df, val_df, test_df):
         rng     = max_val - min_val
 
         scaling_params[col] = {"min": min_val, "max": max_val}
+
+        if rng < 1e-8:
+            # Should be excluded by select_households; raise to surface any logic gap.
+            raise ValueError(
+                f"Household '{col}' has zero range in training "
+                f"(min=max={min_val:.6f}). Remove it via select_households first."
+            )
 
         train_scaled[col] = (train_df[col] - min_val) / rng
 

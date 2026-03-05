@@ -4,14 +4,14 @@ from torch import amp
 
 
 def train_one_epoch(model, dataloader, optimizer, criterion, device,
-                    scaler=None, verbose=False):
+                    scaler=None):
     model.train()
 
     total_loss = 0.0
     use_amp = (device.type == "cuda")
 
-    for x, y, _ in tqdm(dataloader, desc="Training", leave=False,
-                         disable=not verbose):
+    for x, y, _ in tqdm(dataloader, desc="  train", leave=False,
+                         unit="batch", ncols=90):
         x = x.to(device)
         y = y.to(device)
 
@@ -36,14 +36,14 @@ def train_one_epoch(model, dataloader, optimizer, criterion, device,
     return total_loss / len(dataloader.dataset)
 
 
-def validate(model, dataloader, criterion, device, verbose=False):
+def validate(model, dataloader, criterion, device):
     model.eval()
 
     total_loss = 0.0
 
     with torch.no_grad():
-        for x, y, _ in tqdm(dataloader, desc="Validation", leave=False,
-                              disable=not verbose):
+        for x, y, _ in tqdm(dataloader, desc="    val", leave=False,
+                              unit="batch", ncols=90):
             x = x.to(device)
             y = y.to(device)
 

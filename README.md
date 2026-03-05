@@ -121,12 +121,14 @@ config = Config(mode="dev")
 |---------|-----|------|
 | Households | 10 | 100 |
 | Batch size | 512 | 2048 |
-| Epochs | 15 | 50 (+ early stopping) |
+| Search epochs (HPO) | 10 (+ early stop, patience 3) | 20 (+ early stop, patience 5) |
+| Retrain epochs (final) | 15 | 60 |
 | LR | 0.001 | 0.004 |
 | DataLoader workers | 0 | 4 |
-| Random trials | 6 | 20 |
-| PSO swarm / iterations | 4 / 2 | 10 / 10 |
-| MOO pop / generations | 6 / 2 | 20 / 15 |
+| Eval budget (all methods) | 12 | 30 |
+| Random trials | 12 | 30 |
+| PSO swarm / iterations | 4 / 2 | 6 / 4 |
+| MOO pop / generations | 4 / 2 | 6 / 4 |
 
 ---
 

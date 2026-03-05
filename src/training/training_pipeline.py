@@ -6,6 +6,7 @@ from src.training.early_stopping import EarlyStopping
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 import pandas as pd
 import numpy as np
 import os
@@ -49,44 +50,44 @@ def train_single_configuration(train_df, val_df, device, config):
     criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, T_max=config.epochs
+        optimizer, T_max=config.search_epochs
     )
 
     os.makedirs(os.path.dirname(config.checkpoint_path), exist_ok=True)
 
     early_stopper = EarlyStopping(
-        patience=config.patience,
+        patience=config.search_patience,
         min_delta=config.min_delta,
         save_path=config.checkpoint_path
     )
 
     scaler = amp.GradScaler("cuda") if device.type == "cuda" else None
     best_val_loss = float("inf")
-    verbose = (config.mode == "dev")
 
-    for epoch in range(config.epochs):
+    epoch_bar = tqdm(
+        range(config.search_epochs),
+        desc="  Search",
+        unit="ep",
+        ncols=90,
+        leave=True,
+    )
+
+    for epoch in epoch_bar:
 
         train_loss = train_one_epoch(
             model, train_loader, optimizer, criterion, device, scaler,
-            verbose=verbose
         )
 
-        val_loss = validate(model, val_loader, criterion, device,
-                            verbose=verbose)
-
-        print(
-            f"Epoch {epoch+1:02d} | "
-            f"Train MSE: {train_loss:.6f} | "
-            f"Val MSE: {val_loss:.6f}"
-        )
+        val_loss = validate(model, val_loader, criterion, device)
 
         best_val_loss = min(best_val_loss, val_loss)
+        epoch_bar.set_postfix({"val": f"{val_loss:.5f}", "best": f"{best_val_loss:.5f}"})
 
         early_stopper.step(val_loss, model)
         scheduler.step()
 
         if early_stopper.early_stop:
-            print("Early stopping triggered.")
+            epoch_bar.set_description("  Search [stopped]")
             break
 
     return best_val_loss
@@ -122,25 +123,31 @@ def retrain_and_evaluate(train_df, val_df, test_df, device,
     criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, T_max=config.epochs
+        optimizer, T_max=config.retrain_epochs
     )
 
     os.makedirs(os.path.dirname(config.checkpoint_path), exist_ok=True)
 
     scaler = amp.GradScaler("cuda") if device.type == "cuda" else None
-    verbose = (config.mode == "dev")
 
-    print(f"\n[Final Retraining] epochs={config.epochs}")
+    print(f"\n[Final Retraining] epochs={config.retrain_epochs}")
 
-    for epoch in range(config.epochs):
+    epoch_bar = tqdm(
+        range(config.retrain_epochs),
+        desc="  Retrain",
+        unit="ep",
+        ncols=90,
+        leave=True,
+    )
+
+    for epoch in epoch_bar:
 
         train_loss = train_one_epoch(
             model, dataloader, optimizer, criterion, device, scaler,
-            verbose=verbose
         )
         scheduler.step()
 
-        print(f"Epoch {epoch+1:02d} | Train MSE: {train_loss:.6f}")
+        epoch_bar.set_postfix({"train": f"{train_loss:.5f}"})
 
     # Save final trained model
     torch.save(model.state_dict(), config.checkpoint_path)
