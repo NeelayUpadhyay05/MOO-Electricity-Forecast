@@ -121,7 +121,7 @@ config = Config(mode="dev")
 |---------|-----|------|
 | Households | 10 | 100 |
 | Batch size | 512 | 2048 |
-| Epochs | 2 | 50 (+ early stopping) |
+| Epochs | 15 | 50 (+ early stopping) |
 | LR | 0.001 | 0.004 |
 | DataLoader workers | 0 | 4 |
 | Random trials | 6 | 20 |
