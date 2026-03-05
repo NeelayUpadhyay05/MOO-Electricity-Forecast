@@ -8,18 +8,14 @@ from src.training.training_pipeline import train_single_configuration
 # PSO Fitness (Single Objective)
 # --------------------------------------------------
 
-def pso_fitness(particle, train_df, val_df, device):
+def pso_fitness(particle, train_df, val_df, device, mode):
 
-    config = Config()
+    config = Config(mode=mode)
+    b = config.hp_bounds
 
-    config.hidden_dim = int(np.round(particle[0]))
-    config.lr = float(particle[1])
-    config.dropout = float(particle[2])
-
-    # Safety clamp
-    config.hidden_dim = max(32, min(256, config.hidden_dim))
-    config.lr = max(1e-4, min(5e-3, config.lr))
-    config.dropout = max(0.0, min(0.3, config.dropout))
+    config.hidden_dim = int(np.clip(np.round(particle[0]), b["hidden_dim"][0], b["hidden_dim"][1]))
+    config.lr         = float(np.clip(particle[1], b["lr"][0], b["lr"][1]))
+    config.dropout    = float(np.clip(particle[2], b["dropout"][0], b["dropout"][1]))
 
     print("\n" + "="*50)
     print("Evaluating Particle")
@@ -49,18 +45,14 @@ def pso_fitness(particle, train_df, val_df, device):
 # MOO Fitness (Multi Objective)
 # --------------------------------------------------
 
-def moo_fitness(particle, train_df, val_df, device):
+def moo_fitness(particle, train_df, val_df, device, mode):
 
-    config = Config()
+    config = Config(mode=mode)
+    b = config.hp_bounds
 
-    config.hidden_dim = int(np.round(particle[0]))
-    config.lr = float(particle[1])
-    config.dropout = float(particle[2])
-
-    # Safety clamp
-    config.hidden_dim = max(32, min(256, config.hidden_dim))
-    config.lr = max(1e-4, min(5e-3, config.lr))
-    config.dropout = max(0.0, min(0.3, config.dropout))
+    config.hidden_dim = int(np.clip(np.round(particle[0]), b["hidden_dim"][0], b["hidden_dim"][1]))
+    config.lr         = float(np.clip(particle[1], b["lr"][0], b["lr"][1]))
+    config.dropout    = float(np.clip(particle[2], b["dropout"][0], b["dropout"][1]))
 
     print("\n--- Evaluating New MOO Candidate ---")
 

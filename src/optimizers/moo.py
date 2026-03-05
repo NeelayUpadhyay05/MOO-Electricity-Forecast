@@ -154,7 +154,7 @@ class MOOOptimizer:
         # ==============================
         # Main Generational Loop
         # ==============================
-        for gen in range(1, self.generations):
+        for gen in range(self.generations):
 
             print(f"\n########## Generation {gen+1}/{self.generations} ##########")
 

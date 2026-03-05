@@ -138,15 +138,12 @@ def run_pso(train_df, val_df, test_df, scaling_params, device, config):
     print("\n================ PSO =================")
     start = time.time()
 
-    bounds = [
-        [32, 256],
-        [1e-4, 5e-3],
-        [0.0, 0.3]
-    ]
+    b = config.hp_bounds
+    bounds = [b["hidden_dim"], b["lr"], b["dropout"]]
 
     pso = PSO(
         fitness_fn=lambda particle: pso_fitness(
-            particle, train_df, val_df, device
+            particle, train_df, val_df, device, mode=config.mode
         ),
         bounds=bounds,
         swarm_size=config.pso_swarm_size,
@@ -179,15 +176,12 @@ def run_moo(train_df, val_df, test_df, scaling_params, device, config):
     print("\n================ MOO =================")
     start = time.time()
 
-    bounds = [
-        (32, 256),
-        (1e-4, 5e-3),
-        (0.0, 0.3),
-    ]
+    b = config.hp_bounds
+    bounds = [tuple(b["hidden_dim"]), tuple(b["lr"]), tuple(b["dropout"])]
 
     moo = MOOOptimizer(
         fitness_fn=lambda particle: moo_fitness(
-            particle, train_df, val_df, device
+            particle, train_df, val_df, device, mode=config.mode
         ),
         bounds=bounds,
         pop_size=config.moo_pop_size,
@@ -238,23 +232,27 @@ def main():
     set_seed(42)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    config = Config(mode="dev")   # change to "full" later
+    # Enable fastest CuDNN algorithms for fixed input sizes
+    if torch.cuda.is_available():
+        torch.backends.cudnn.benchmark = True
+
+    config = Config(mode="full")
 
     train_df, val_df, test_df, scaling_params = load_data(config)
 
     baseline = run_baseline(train_df, val_df, test_df, scaling_params, device, config)
-    random_res = run_random_search(train_df, val_df, test_df, scaling_params, device, config)
-    pso_res = run_pso(train_df, val_df, test_df, scaling_params, device, config)
-    moo_res = run_moo(train_df, val_df, test_df, scaling_params, device, config)
+    # random_res = run_random_search(train_df, val_df, test_df, scaling_params, device, config)
+    # pso_res = run_pso(train_df, val_df, test_df, scaling_params, device, config)
+    # moo_res = run_moo(train_df, val_df, test_df, scaling_params, device, config)
 
     print("\n\n================ FINAL COMPARISON =================")
     print(f"{'Method':<15}{'Val MSE':<15}{'Test RMSE':<15}{'Time (s)':<15}")
     print("-" * 60)
 
     print(f"{'Baseline':<15}{baseline[0]:<15.6f}{baseline[1]:<15.4f}{baseline[2]:<15.2f}")
-    print(f"{'Random':<15}{random_res[0]:<15.6f}{random_res[1]:<15.4f}{random_res[2]:<15.2f}")
-    print(f"{'PSO':<15}{pso_res[0]:<15.6f}{pso_res[1]:<15.4f}{pso_res[2]:<15.2f}")
-    print(f"{'MOO':<15}{moo_res[0]:<15.6f}{moo_res[1]:<15.4f}{moo_res[2]:<15.2f}")
+    # print(f"{'Random':<15}{random_res[0]:<15.6f}{random_res[1]:<15.4f}{random_res[2]:<15.2f}")
+    # print(f"{'PSO':<15}{pso_res[0]:<15.6f}{pso_res[1]:<15.4f}{pso_res[2]:<15.2f}")
+    # print(f"{'MOO':<15}{moo_res[0]:<15.6f}{moo_res[1]:<15.4f}{moo_res[2]:<15.2f}")
 
 
 if __name__ == "__main__":

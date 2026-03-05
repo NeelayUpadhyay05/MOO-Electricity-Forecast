@@ -17,10 +17,10 @@ class LSTMModel(nn.Module):
             input_size=input_dim,
             hidden_size=hidden_dim,
             num_layers=num_layers,
-            dropout=dropout if num_layers > 1 else 0.0,
             batch_first=True
         )
 
+        self.dropout = nn.Dropout(p=dropout)
         self.fc = nn.Linear(hidden_dim, output_dim)
 
     def forward(self, x):
@@ -33,6 +33,7 @@ class LSTMModel(nn.Module):
         # Take last hidden state from final layer
         last_hidden = hidden[-1]  # shape: (batch_size, hidden_dim)
 
+        last_hidden = self.dropout(last_hidden)
         out = self.fc(last_hidden)  # shape: (batch_size, output_dim)
 
         return out
