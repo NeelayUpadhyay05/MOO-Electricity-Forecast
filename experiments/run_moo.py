@@ -22,12 +22,14 @@ from src.config import Config
 # ==========================================================
 # Result Saving
 # ==========================================================
-def save_results(out_dir, runtime, val_mse, test_rmse, best_hyperparams, convergence):
+def save_results(out_dir, runtime, val_mse, test_metrics, best_hyperparams, convergence):
     os.makedirs(out_dir, exist_ok=True)
     result = {
         "runtime_s": round(runtime, 2),
         "best_val_mse": float(val_mse),
-        "best_test_rmse": float(test_rmse),
+        "best_test_rmse": float(test_metrics["rmse"]),
+        "best_test_mae": float(test_metrics["mae"]),
+        "best_test_mape": float(test_metrics["mape"]),
         "best_hyperparams": best_hyperparams,
         "convergence": [float(v) for v in convergence],
     }
@@ -81,7 +83,7 @@ def run_moo(train_df, val_df, test_df, scaling_params, device, config, seed=42):
     start = time.time()
 
     b = config.hp_bounds
-    bounds = [tuple(b["hidden_dim"]), tuple(b["lr"]), tuple(b["dropout"])]
+    bounds = [tuple(b["hidden_dim"]), tuple(b["num_layers"]), tuple(b["lr"]), tuple(b["dropout"])]
 
     moo = MOOOptimizer(
         fitness_fn=lambda particle: moo_fitness(
@@ -98,17 +100,18 @@ def run_moo(train_df, val_df, test_df, scaling_params, device, config, seed=42):
 
     for solution in pareto_solutions:
 
-        hidden_dim, lr, dropout = solution["params"]
+        hidden_dim, num_layers, lr, dropout = solution["params"]
 
         sol_config = Config(mode=config.mode)
         sol_config.hidden_dim = int(np.round(hidden_dim))
+        sol_config.num_layers = int(np.round(num_layers))
         sol_config.lr = float(lr)
         sol_config.dropout = float(dropout)
-        sol_config.checkpoint_path = f"checkpoints/seed_{seed}/moo_hidden{int(hidden_dim)}.pt"
+        sol_config.checkpoint_path = f"checkpoints/seed_{seed}/moo_h{sol_config.hidden_dim}_l{sol_config.num_layers}.pt"
 
         os.makedirs(os.path.dirname(sol_config.checkpoint_path), exist_ok=True)
 
-        test_rmse = retrain_and_evaluate(
+        test_metrics = retrain_and_evaluate(
             train_df, val_df, test_df,
             device, sol_config, scaling_params
         )
@@ -116,9 +119,12 @@ def run_moo(train_df, val_df, test_df, scaling_params, device, config, seed=42):
         evaluated.append({
             "val_mse": solution["val_mse"],
             "complexity": solution["complexity"],
-            "test_rmse": test_rmse,
+            "test_rmse": test_metrics["rmse"],
+            "test_mae": test_metrics["mae"],
+            "test_mape": test_metrics["mape"],
             "hyperparams": {
                 "hidden_dim": sol_config.hidden_dim,
+                "num_layers": sol_config.num_layers,
                 "lr": sol_config.lr,
                 "dropout": sol_config.dropout,
             },
@@ -134,6 +140,7 @@ def run_moo(train_df, val_df, test_df, scaling_params, device, config, seed=42):
     pareto_rows = [
         {
             "hidden_dim": e["hyperparams"]["hidden_dim"],
+            "num_layers": e["hyperparams"]["num_layers"],
             "lr":         e["hyperparams"]["lr"],
             "dropout":    e["hyperparams"]["dropout"],
             "val_mse":    float(e["val_mse"]),
@@ -145,11 +152,17 @@ def run_moo(train_df, val_df, test_df, scaling_params, device, config, seed=42):
     pd.DataFrame(pareto_rows).to_csv(
         os.path.join(out_dir, "pareto_front.csv"), index=False
     )
+
+    best_test_metrics = {
+        "rmse": best_test_solution["test_rmse"],
+        "mae": best_test_solution["test_mae"],
+        "mape": best_test_solution["test_mape"],
+    }
     save_results(
         out_dir=out_dir,
         runtime=runtime,
         val_mse=best_val_solution["val_mse"],
-        test_rmse=best_test_solution["test_rmse"],
+        test_metrics=best_test_metrics,
         best_hyperparams=best_val_solution["hyperparams"],
         convergence=history,
     )
@@ -168,6 +181,7 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--mode", type=str, default="full", choices=["dev", "full"])
     args = parser.parse_args()
 
     set_seed(args.seed)
@@ -176,7 +190,7 @@ def main():
     if torch.cuda.is_available():
         torch.backends.cudnn.benchmark = True
 
-    config = Config(mode="full")
+    config = Config(mode=args.mode)
     train_df, val_df, test_df, scaling_params = load_data(config)
 
     val_mse, test_rmse, runtime = run_moo(

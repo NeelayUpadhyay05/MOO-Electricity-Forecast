@@ -5,9 +5,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import argparse
 import time
 import json
-import random
 import torch
 import pandas as pd
+import optuna
 
 from src.utils.seed import set_seed
 from src.training.training_pipeline import (
@@ -15,6 +15,10 @@ from src.training.training_pipeline import (
     retrain_and_evaluate
 )
 from src.config import Config
+
+
+# Suppress Optuna's verbose logging
+optuna.logging.set_verbosity(optuna.logging.WARNING)
 
 
 # ==========================================================
@@ -73,31 +77,32 @@ def load_data(config):
 
 
 # ==========================================================
-# Random Search
+# Optuna (TPE)
 # ==========================================================
-def run_random_search(train_df, val_df, test_df, scaling_params, device, config, seed=42):
+def run_optuna(train_df, val_df, test_df, scaling_params, device, config, seed=42):
 
-    print("\n================ RANDOM SEARCH =================")
+    print("\n================ OPTUNA (TPE) =================")
     start = time.time()
 
-    best_val = float("inf")
-    best_config = None
     convergence = []
+    best_val = float("inf")
     search_history = []
 
-    for trial in range(config.random_trials):
-
-        print(f"\n########## Trial {trial+1}/{config.random_trials} ##########")
+    def objective(trial):
+        nonlocal best_val
 
         trial_config = Config(mode=config.mode)
-        trial_config.hidden_dim = random.randint(32, 256)
-        trial_config.num_layers = random.choice([1, 2, 3])
-        trial_config.lr = random.uniform(1e-4, 5e-3)
-        trial_config.dropout = random.uniform(0.0, 0.3)
-        trial_config.checkpoint_path = f"checkpoints/seed_{seed}/random_trial.pt"
+        b = config.hp_bounds
+
+        trial_config.hidden_dim = trial.suggest_int("hidden_dim", b["hidden_dim"][0], b["hidden_dim"][1])
+        trial_config.num_layers = trial.suggest_int("num_layers", b["num_layers"][0], b["num_layers"][1])
+        trial_config.lr = trial.suggest_float("lr", b["lr"][0], b["lr"][1])
+        trial_config.dropout = trial.suggest_float("dropout", b["dropout"][0], b["dropout"][1])
+        trial_config.checkpoint_path = f"checkpoints/seed_{seed}/optuna_trial.pt"
 
         os.makedirs(os.path.dirname(trial_config.checkpoint_path), exist_ok=True)
 
+        print(f"\n########## Optuna Trial {trial.number + 1}/{config.random_trials} ##########")
         print(
             f"Sampled -> hidden_dim={trial_config.hidden_dim}, "
             f"num_layers={trial_config.num_layers}, "
@@ -111,14 +116,10 @@ def run_random_search(train_df, val_df, test_df, scaling_params, device, config,
 
         print(f"Validation MSE: {val_mse:.6f}")
 
-        if val_mse < best_val:
-            best_val = val_mse
-            best_config = trial_config
-            print(">> New Best Found!")
-
+        best_val = min(best_val, val_mse)
         convergence.append(best_val)
         search_history.append({
-            "trial": trial + 1,
+            "trial": trial.number + 1,
             "hidden_dim": trial_config.hidden_dim,
             "num_layers": trial_config.num_layers,
             "lr": trial_config.lr,
@@ -126,9 +127,24 @@ def run_random_search(train_df, val_df, test_df, scaling_params, device, config,
             "val_mse": val_mse,
         })
 
-    print("\nRetraining Best Random Configuration...")
+        return val_mse
 
-    best_config.checkpoint_path = f"checkpoints/seed_{seed}/random_best.pt"
+    sampler = optuna.samplers.TPESampler(seed=seed)
+    study = optuna.create_study(direction="minimize", sampler=sampler)
+    study.optimize(objective, n_trials=config.random_trials)
+
+    # Retrain best configuration
+    best_trial = study.best_trial
+    best_config = Config(mode=config.mode)
+    best_config.hidden_dim = best_trial.params["hidden_dim"]
+    best_config.num_layers = best_trial.params["num_layers"]
+    best_config.lr = best_trial.params["lr"]
+    best_config.dropout = best_trial.params["dropout"]
+    best_config.checkpoint_path = f"checkpoints/seed_{seed}/optuna_best.pt"
+
+    os.makedirs(os.path.dirname(best_config.checkpoint_path), exist_ok=True)
+
+    print("\nRetraining Best Optuna Configuration...")
 
     test_metrics = retrain_and_evaluate(
         train_df, val_df, test_df,
@@ -137,7 +153,7 @@ def run_random_search(train_df, val_df, test_df, scaling_params, device, config,
 
     runtime = time.time() - start
 
-    out_dir = f"results/seed_{seed}/random_search"
+    out_dir = f"results/seed_{seed}/optuna"
     os.makedirs(out_dir, exist_ok=True)
     pd.DataFrame(search_history).to_csv(
         os.path.join(out_dir, "search_history.csv"), index=False
@@ -145,7 +161,7 @@ def run_random_search(train_df, val_df, test_df, scaling_params, device, config,
     save_results(
         out_dir=out_dir,
         runtime=runtime,
-        val_mse=best_val,
+        val_mse=study.best_value,
         test_metrics=test_metrics,
         best_hyperparams={
             "hidden_dim": best_config.hidden_dim,
@@ -156,7 +172,7 @@ def run_random_search(train_df, val_df, test_df, scaling_params, device, config,
         convergence=convergence,
     )
 
-    return best_val, test_metrics["rmse"], runtime
+    return study.best_value, test_metrics["rmse"], runtime
 
 
 # ==========================================================
@@ -178,13 +194,13 @@ def main():
     config = Config(mode=args.mode)
     train_df, val_df, test_df, scaling_params = load_data(config)
 
-    val_mse, test_rmse, runtime = run_random_search(
+    val_mse, test_rmse, runtime = run_optuna(
         train_df, val_df, test_df, scaling_params, device, config, seed=args.seed
     )
 
     print(f"\n{'Method':<15}{'Val MSE':<15}{'Test RMSE':<15}{'Time (s)':<15}")
     print("-" * 60)
-    print(f"{'Random Search':<15}{val_mse:<15.6f}{test_rmse:<15.4f}{runtime:<15.2f}")
+    print(f"{'Optuna (TPE)':<15}{val_mse:<15.6f}{test_rmse:<15.4f}{runtime:<15.2f}")
 
 
 if __name__ == "__main__":

@@ -17,7 +17,8 @@ class LSTMModel(nn.Module):
             input_size=input_dim,
             hidden_size=hidden_dim,
             num_layers=num_layers,
-            batch_first=True
+            batch_first=True,
+            dropout=dropout if num_layers > 1 else 0.0,
         )
 
         self.dropout = nn.Dropout(p=dropout)
@@ -37,3 +38,7 @@ class LSTMModel(nn.Module):
         out = self.fc(last_hidden)  # shape: (batch_size, output_dim)
 
         return out
+
+
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters())

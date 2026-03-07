@@ -22,12 +22,14 @@ from src.config import Config
 # ==========================================================
 # Result Saving
 # ==========================================================
-def save_results(out_dir, runtime, val_mse, test_rmse, best_hyperparams, convergence):
+def save_results(out_dir, runtime, val_mse, test_metrics, best_hyperparams, convergence):
     os.makedirs(out_dir, exist_ok=True)
     result = {
         "runtime_s": round(runtime, 2),
         "best_val_mse": float(val_mse),
-        "best_test_rmse": float(test_rmse),
+        "best_test_rmse": float(test_metrics["rmse"]),
+        "best_test_mae": float(test_metrics["mae"]),
+        "best_test_mape": float(test_metrics["mape"]),
         "best_hyperparams": best_hyperparams,
         "convergence": [float(v) for v in convergence],
     }
@@ -81,7 +83,7 @@ def run_pso(train_df, val_df, test_df, scaling_params, device, config, seed=42):
     start = time.time()
 
     b = config.hp_bounds
-    bounds = [b["hidden_dim"], b["lr"], b["dropout"]]
+    bounds = [b["hidden_dim"], b["num_layers"], b["lr"], b["dropout"]]
 
     pso = PSO(
         fitness_fn=lambda particle: pso_fitness(
@@ -97,13 +99,14 @@ def run_pso(train_df, val_df, test_df, scaling_params, device, config, seed=42):
 
     best_config = Config(mode=config.mode)
     best_config.hidden_dim = int(np.round(best_position[0]))
-    best_config.lr = float(best_position[1])
-    best_config.dropout = float(best_position[2])
+    best_config.num_layers = int(np.round(best_position[1]))
+    best_config.lr = float(best_position[2])
+    best_config.dropout = float(best_position[3])
     best_config.checkpoint_path = f"checkpoints/seed_{seed}/pso_best.pt"
 
     os.makedirs(os.path.dirname(best_config.checkpoint_path), exist_ok=True)
 
-    test_rmse = retrain_and_evaluate(
+    test_metrics = retrain_and_evaluate(
         train_df, val_df, test_df,
         device, best_config, scaling_params
     )
@@ -114,16 +117,17 @@ def run_pso(train_df, val_df, test_df, scaling_params, device, config, seed=42):
         out_dir=f"results/seed_{seed}/pso",
         runtime=runtime,
         val_mse=best_val,
-        test_rmse=test_rmse,
+        test_metrics=test_metrics,
         best_hyperparams={
             "hidden_dim": best_config.hidden_dim,
+            "num_layers": best_config.num_layers,
             "lr": best_config.lr,
             "dropout": best_config.dropout,
         },
         convergence=history,
     )
 
-    return best_val, test_rmse, runtime
+    return best_val, test_metrics["rmse"], runtime
 
 
 # ==========================================================
@@ -133,6 +137,7 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--mode", type=str, default="full", choices=["dev", "full"])
     args = parser.parse_args()
 
     set_seed(args.seed)
@@ -141,7 +146,7 @@ def main():
     if torch.cuda.is_available():
         torch.backends.cudnn.benchmark = True
 
-    config = Config(mode="full")
+    config = Config(mode=args.mode)
     train_df, val_df, test_df, scaling_params = load_data(config)
 
     val_mse, test_rmse, runtime = run_pso(

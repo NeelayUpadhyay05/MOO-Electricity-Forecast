@@ -41,6 +41,7 @@ def train_single_configuration(train_df, val_df, device, config):
 
     model = LSTMModel(
         hidden_dim=config.hidden_dim,
+        num_layers=getattr(config, 'num_layers', 1),
         dropout=config.dropout
     ).to(device)
 
@@ -114,6 +115,7 @@ def retrain_and_evaluate(train_df, val_df, test_df, device,
 
     model = LSTMModel(
         hidden_dim=config.hidden_dim,
+        num_layers=getattr(config, 'num_layers', 1),
         dropout=config.dropout
     ).to(device)
 
@@ -167,6 +169,8 @@ def retrain_and_evaluate(train_df, val_df, test_df, device,
 
     model.eval()
     all_squared_errors = []
+    all_abs_errors = []
+    all_target_values = []
     household_columns = train_df.columns.tolist()
 
     # Pre-compute scaling arrays once (avoids per-sample dict lookups)
@@ -189,10 +193,18 @@ def retrain_and_evaluate(train_df, val_df, test_df, device,
             target_inv = targets * scale[:, None] + min_b[:, None]   # (batch, 24)
 
             all_squared_errors.append((pred_inv - target_inv) ** 2)
+            all_abs_errors.append(np.abs(pred_inv - target_inv))
+            all_target_values.append(np.abs(target_inv))
 
-    rmse = np.sqrt(np.mean(np.concatenate(all_squared_errors)))
+    squared = np.concatenate(all_squared_errors)
+    abs_err = np.concatenate(all_abs_errors)
+    abs_tgt = np.concatenate(all_target_values)
 
-    print(f"[Final Test RMSE]: {rmse:.4f}")
+    rmse = float(np.sqrt(np.mean(squared)))
+    mae = float(np.mean(abs_err))
+    mape = float(np.mean(abs_err / np.clip(abs_tgt, 1e-8, None)) * 100)
+
+    print(f"[Final Test RMSE]: {rmse:.4f}  MAE: {mae:.4f}  MAPE: {mape:.2f}%")
     print(f"Model saved to: {config.checkpoint_path}")
 
-    return float(rmse)
+    return {"rmse": rmse, "mae": mae, "mape": mape}

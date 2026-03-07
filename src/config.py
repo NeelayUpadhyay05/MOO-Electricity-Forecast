@@ -16,6 +16,7 @@ class Config:
         # Model
         # -----------------------
         self.hidden_dim = 64
+        self.num_layers = 1
         self.dropout = 0.2
 
         # -----------------------
@@ -69,6 +70,7 @@ class Config:
         # -----------------------
         self.hp_bounds = {
             "hidden_dim": [32, 256],
+            "num_layers": [1, 3],
             "lr":         [1e-4, 5e-3],
             "dropout":    [0.0, 0.3],
         }

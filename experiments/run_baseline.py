@@ -19,12 +19,14 @@ from src.config import Config
 # ==========================================================
 # Result Saving
 # ==========================================================
-def save_results(out_dir, runtime, val_mse, test_rmse, best_hyperparams, convergence):
+def save_results(out_dir, runtime, val_mse, test_metrics, best_hyperparams, convergence):
     os.makedirs(out_dir, exist_ok=True)
     result = {
         "runtime_s": round(runtime, 2),
         "best_val_mse": float(val_mse),
-        "best_test_rmse": float(test_rmse),
+        "best_test_rmse": float(test_metrics["rmse"]),
+        "best_test_mae": float(test_metrics["mae"]),
+        "best_test_mape": float(test_metrics["mape"]),
         "best_hyperparams": best_hyperparams,
         "convergence": [float(v) for v in convergence],
     }
@@ -79,6 +81,7 @@ def run_baseline(train_df, val_df, test_df, scaling_params, device, config, seed
 
     base_config = Config(mode=config.mode)
     base_config.hidden_dim = 128
+    base_config.num_layers = 1
     base_config.lr = 0.001
     base_config.dropout = 0.0
     base_config.checkpoint_path = f"checkpoints/seed_{seed}/baseline_best.pt"
@@ -89,7 +92,7 @@ def run_baseline(train_df, val_df, test_df, scaling_params, device, config, seed
         train_df, val_df, device, base_config
     )
 
-    test_rmse = retrain_and_evaluate(
+    test_metrics = retrain_and_evaluate(
         train_df, val_df, test_df,
         device, base_config, scaling_params
     )
@@ -100,12 +103,14 @@ def run_baseline(train_df, val_df, test_df, scaling_params, device, config, seed
         out_dir=f"results/seed_{seed}/baseline",
         runtime=runtime,
         val_mse=val_mse,
-        test_rmse=test_rmse,
-        best_hyperparams={"hidden_dim": 128, "lr": 0.001, "dropout": 0.0},
+        test_metrics=test_metrics,
+        best_hyperparams={
+            "hidden_dim": 128, "num_layers": 1, "lr": 0.001, "dropout": 0.0
+        },
         convergence=[],
     )
 
-    return val_mse, test_rmse, runtime
+    return val_mse, test_metrics["rmse"], runtime
 
 
 # ==========================================================
@@ -115,6 +120,7 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--mode", type=str, default="full", choices=["dev", "full"])
     args = parser.parse_args()
 
     set_seed(args.seed)
@@ -123,7 +129,7 @@ def main():
     if torch.cuda.is_available():
         torch.backends.cudnn.benchmark = True
 
-    config = Config(mode="full")
+    config = Config(mode=args.mode)
     train_df, val_df, test_df, scaling_params = load_data(config)
 
     val_mse, test_rmse, runtime = run_baseline(

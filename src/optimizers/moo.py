@@ -9,12 +9,23 @@ class MOOOptimizer:
         pop_size=10,
         generations=3,
         seed=42,
+        p_cross=0.9,
+        eta_c=20,
+        eta_m=20,
     ):
         self.fitness_fn = fitness_fn
         self.bounds = bounds
         self.pop_size = pop_size
         self.generations = generations
         self.rng = np.random.default_rng(seed)
+
+        # SBX crossover parameters
+        self.p_cross = p_cross
+        self.eta_c = eta_c
+
+        # Polynomial mutation parameters
+        self.eta_m = eta_m
+        self.mutation_rate = 1.0 / len(bounds)
 
         self.population = None
         self.objectives = None
@@ -108,30 +119,112 @@ class MOOOptimizer:
         return distance
 
     # -----------------------------
-    # Selection
+    # Tournament Selection (with front rank + crowding distance)
     # -----------------------------
-    def tournament_selection(self, population, objectives):
+    def tournament_selection(self, population, ranks, crowding_dists):
         idx1, idx2 = self.rng.choice(len(population), size=2, replace=False)
 
-        if self.dominates(objectives[idx1], objectives[idx2]):
+        # Prefer lower front rank
+        if ranks[idx1] < ranks[idx2]:
             return population[idx1]
-        if self.dominates(objectives[idx2], objectives[idx1]):
+        if ranks[idx2] < ranks[idx1]:
+            return population[idx2]
+
+        # Same front rank — prefer higher crowding distance
+        if crowding_dists[idx1] > crowding_dists[idx2]:
+            return population[idx1]
+        if crowding_dists[idx2] > crowding_dists[idx1]:
             return population[idx2]
 
         return population[idx1] if self.rng.random() < 0.5 else population[idx2]
 
     # -----------------------------
-    # Mutation
+    # SBX Crossover
     # -----------------------------
-    def mutate(self, individual, mutation_rate=0.2):
+    def crossover(self, parent1, parent2):
+        child1 = parent1.copy()
+        child2 = parent2.copy()
+
+        if self.rng.random() > self.p_cross:
+            return child1, child2
+
+        for i in range(len(parent1)):
+            if self.rng.random() > 0.5:
+                continue
+
+            p1, p2 = parent1[i], parent2[i]
+            if abs(p1 - p2) < 1e-14:
+                continue
+
+            low, high = self.bounds[i]
+            if p1 > p2:
+                p1, p2 = p2, p1
+
+            # Compute beta
+            beta = 1.0 + 2.0 * min(p1 - low, high - p2) / (p2 - p1)
+            alpha = 2.0 - beta ** (-(self.eta_c + 1.0))
+
+            u = self.rng.random()
+            if u <= 1.0 / alpha:
+                betaq = (u * alpha) ** (1.0 / (self.eta_c + 1.0))
+            else:
+                betaq = (1.0 / (2.0 - u * alpha)) ** (1.0 / (self.eta_c + 1.0))
+
+            c1 = 0.5 * ((p1 + p2) - betaq * (p2 - p1))
+            c2 = 0.5 * ((p1 + p2) + betaq * (p2 - p1))
+
+            child1[i] = np.clip(c1, low, high)
+            child2[i] = np.clip(c2, low, high)
+
+        return child1, child2
+
+    # -----------------------------
+    # Polynomial Mutation
+    # -----------------------------
+    def polynomial_mutate(self, individual):
         mutated = individual.copy()
         for i in range(len(mutated)):
-            if self.rng.random() < mutation_rate:
-                low, high = self.bounds[i]
-                sigma = 0.1 * (high - low)
-                mutated[i] += self.rng.normal(0, sigma)
-                mutated[i] = np.clip(mutated[i], low, high)
+            if self.rng.random() >= self.mutation_rate:
+                continue
+
+            low, high = self.bounds[i]
+            delta = high - low
+            val = mutated[i]
+
+            delta1 = (val - low) / delta
+            delta2 = (high - val) / delta
+
+            u = self.rng.random()
+            if u < 0.5:
+                xy = 1.0 - delta1
+                val_mut = (2.0 * u + (1.0 - 2.0 * u) * xy ** (self.eta_m + 1.0))
+                deltaq = val_mut ** (1.0 / (self.eta_m + 1.0)) - 1.0
+            else:
+                xy = 1.0 - delta2
+                val_mut = 2.0 * (1.0 - u) + 2.0 * (u - 0.5) * xy ** (self.eta_m + 1.0)
+                deltaq = 1.0 - val_mut ** (1.0 / (self.eta_m + 1.0))
+
+            mutated[i] = np.clip(val + deltaq * delta, low, high)
+
         return mutated
+
+    # -----------------------------
+    # Compute front ranks and crowding distances for population
+    # -----------------------------
+    def compute_ranks_and_crowding(self, objectives):
+        fronts = self.non_dominated_sort(objectives)
+        n = len(objectives)
+        ranks = np.zeros(n, dtype=int)
+        crowding_dists = np.zeros(n)
+
+        for rank, front in enumerate(fronts):
+            for idx in front:
+                ranks[idx] = rank
+            distances = self.crowding_distance(front, objectives)
+            for i, idx in enumerate(front):
+                crowding_dists[idx] = distances[i]
+
+        return fronts, ranks, crowding_dists
 
     # -----------------------------
     # Main Optimization Loop
@@ -140,6 +233,8 @@ class MOOOptimizer:
         print("\n================ MOO Optimization Started ================")
         print(f"Population Size: {self.pop_size}")
         print(f"Generations: {self.generations}")
+        print(f"Crossover: SBX (p={self.p_cross}, eta_c={self.eta_c})")
+        print(f"Mutation: Polynomial (rate={self.mutation_rate:.2f}, eta_m={self.eta_m})")
         print("==========================================================")
 
         population = self.initialize_population()
@@ -148,7 +243,7 @@ class MOOOptimizer:
         objectives = self.evaluate_population(population)
         total_evals = self.pop_size
 
-        fronts = self.non_dominated_sort(objectives)
+        fronts, ranks, crowding_dists = self.compute_ranks_and_crowding(objectives)
         print(f"Initial Pareto Front Size: {len(fronts[0])}")
 
         history = [float(min(objectives[:, 0]))]
@@ -160,12 +255,17 @@ class MOOOptimizer:
 
             print(f"\n########## Generation {gen+1}/{self.generations} ##########")
 
+            # Generate offspring via crossover + mutation
             offspring = []
-
             while len(offspring) < self.pop_size:
-                parent = self.tournament_selection(population, objectives)
-                child = self.mutate(parent)
-                offspring.append(child)
+                p1 = self.tournament_selection(population, ranks, crowding_dists)
+                p2 = self.tournament_selection(population, ranks, crowding_dists)
+                c1, c2 = self.crossover(p1, p2)
+                c1 = self.polynomial_mutate(c1)
+                c2 = self.polynomial_mutate(c2)
+                offspring.append(c1)
+                if len(offspring) < self.pop_size:
+                    offspring.append(c2)
 
             offspring = np.array(offspring)
 
@@ -204,11 +304,13 @@ class MOOOptimizer:
             population = np.array(new_population)
             objectives = np.array(new_objectives)
 
-            current_front = self.non_dominated_sort(objectives)[0]
-            best_val = min(objectives[current_front][:, 0])
+            # Recompute ranks and crowding for next generation's tournament selection
+            fronts, ranks, crowding_dists = self.compute_ranks_and_crowding(objectives)
+
+            best_val = min(objectives[fronts[0]][:, 0])
 
             print(f"Generation {gen+1} Complete")
-            print(f"Current Pareto Front Size: {len(current_front)}")
+            print(f"Current Pareto Front Size: {len(fronts[0])}")
             print(f"Best Validation MSE in Front: {best_val:.6f}")
             print(f"Total Evaluations So Far: {total_evals}")
             history.append(float(best_val))
@@ -216,7 +318,7 @@ class MOOOptimizer:
         # ==============================
         # Final Pareto Front
         # ==============================
-        final_front = self.non_dominated_sort(objectives)[0]
+        final_front = fronts[0]
 
         pareto_solutions = []
         for idx in final_front:
